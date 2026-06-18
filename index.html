@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>NUGI CITY ORTHOMOSAIC</title>
+  <script src="https://cesium.com/downloads/cesiumjs/releases/1.115/Build/Cesium/Cesium.js"></script>
+  <link href="https://cesium.com/downloads/cesiumjs/releases/1.115/Build/Cesium/Widgets/widgets.css" rel="stylesheet">
+  
+  <script src="https://unpkg.com/tiff-imagery-provider@2.17.5/dist/tiff-imagery-provider.js"></script>
+  
+  <style>
+    html, body, #cesiumContainer {
+      width: 100%; height: 100%; margin: 0; padding: 0; overflow: hidden;
+    }
+    #basemapMenu {
+      position: absolute; top: 10px; left: 10px; z-index: 1000;
+      background: rgba(42, 42, 42, 0.8); padding: 10px; border-radius: 4px;
+      color: white; font-family: sans-serif;
+    }
+    select { background: #333; color: white; border: 1px solid #555; padding: 5px; }
+  </style>
+</head>
+<body>
+
+  <div id="basemapMenu">
+    <label for="basemaps">Choose Basemap: </label>
+    <select id="basemaps">
+      <option value="osm">OpenStreetMap</option>
+      <option value="google">Google Earth (3D Tiles)</option>
+    </select>
+  </div>
+
+  <div id="cesiumContainer"></div>
+
+  <script>
+    // 1. YOUR CONFIGURATION
+    // Replace with your actual Cesium Ion Access Token (Required for Google 3D Tiles)
+    Cesium.Ion.defaultAccessToken = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiI5NjNhYjZiZC01YjI1LTQwOTItOGRjNS0zNGM5YmJjN2M5YWYiLCJpZCI6NDQ2Mjc4LCJpc3MiOiJodHRwczovL2FwaS5jZXNpdW0uY29tIiwiYXVkIjoidW5kZWZpbmVkX2RlZmF1bHQiLCJpYXQiOjE3ODE3OTc0MTl9.eslbWQ0i9TJnycIrbkiFR-wydnw1O8qgHaxsyn5Xfvw'; 
+    
+    // Replace with your Filebase public gateway link to the COG
+    const COG_URL = "https://nugi-cog.s3.filebase.io/output_nugicity_cog.tif";
+
+    // 2. INITIALIZE THE VIEWER
+    const viewer = new Cesium.Viewer('cesiumContainer', {
+      baseLayerPicker: false, // Turned off to use our custom menu
+      animation: false,
+      timeline: false,
+      infoBox: false,
+      geocoder: false
+    });
+
+    // 3. BASEMAP LAYERS DEFINITION
+    // OpenStreetMap Layer
+    const osmLayer = new Cesium.ImageryLayer(
+      new Cesium.OpenStreetMapImageryProvider({
+        url: 'https://a.tile.openstreetmap.org/'
+      })
+    );
+    viewer.imageryLayers.add(osmLayer);
+
+    // Google Photorealistic 3D Tiles Layer (Lazy loaded when selected)
+    let googleTileset = null;
+
+    // Handle Basemap Switching
+    document.getElementById('basemaps').addEventListener('change', async (e) => {
+      const selected = e.target.value;
+      
+      if (selected === 'google') {
+        osmLayer.show = false;
+        if (!googleTileset) {
+          try {
+            googleTileset = await Cesium.createGooglePhotorealistic3DTileset();
+            viewer.scene.primitives.add(googleTileset);
+          } catch (error) {
+            console.error("Error loading Google 3D Tiles:", error);
+          }
+        } else {
+          googleTileset.show = true;
+        }
+      } else if (selected === 'osm') {
+        osmLayer.show = true;
+        if (googleTileset) googleTileset.show = false;
+      }
+    });
+
+    // 4. LOAD THE CLOUD OPTIMIZED GEOTIFF (COG)
+    async function loadCOG() {
+      try {
+        // Instantiate the provider using the global object exposed by the script tag
+        const provider = await TIFFImageryProvider.TIFFImageryProvider.fromUrl(COG_URL);
+        
+        // Add COG to the viewer
+        const cogLayer = viewer.imageryLayers.addImageryProvider(provider);
+        
+        // Automatically zoom and center camera onto your COG
+        viewer.zoomTo(cogLayer);
+      } catch (err) {
+        console.error("Failed to load COG from Filebase:", err);
+      }
+    }
+
+    loadCOG();
+  </script>
+</body>
+</html>
