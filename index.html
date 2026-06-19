@@ -11,15 +11,6 @@
       touch-action: none;
       overscroll-behavior: none;
     }
-    #layerControlPanel {
-      position: absolute; top: 10px; left: 10px; background: rgba(42, 42, 42, 0.85);
-      padding: 12px; border-radius: 6px; font-family: sans-serif; color: white; z-index: 999;
-      box-shadow: 0 4px 6px rgba(0,0,0,0.3);
-    }
-    #layerControlPanel h3 { margin: 0 0 10px 0; font-size: 14px; text-transform: uppercase; }
-    .control-group { margin-bottom: 8px; font-size: 13px; display: flex; align-items: center; }
-    .control-group input { margin-right: 8px; cursor: pointer; }
-    .control-group label { cursor: pointer; }
     #mapZoomControls {
       position: absolute; right: 16px; bottom: 32px; z-index: 999;
       display: flex; flex-direction: column; border-radius: 6px; overflow: hidden;
@@ -54,21 +45,8 @@
 
   <div id="loadingOverlay">
     <div class="spinner"></div>
-    <div id="loadingText">Loading Nugi City raster from TerraGrid Assets...</div>
+    <div id="loadingText">Loading Nugi City raster from Cesium Ion...</div>
     <div id="assetError"></div>
-  </div>
-
-  <div id="layerControlPanel">
-    <h3>Optional basemaps</h3>
-    <div class="control-group">
-      <input type="checkbox" id="toggleGoogle3D">
-      <label for="toggleGoogle3D">Google Photorealistic 3D Tiles</label>
-    </div>
-    <div class="control-group">
-      <input type="checkbox" id="toggleOsmBuildings">
-      <label for="toggleOsmBuildings">Cesium OSM Buildings</label>
-    </div>
-    <p style="font-size:11px;color:#aaa;margin:8px 0 0;line-height:1.35;">Basemaps render behind your Nugi City raster.</p>
   </div>
 
   <div id="mapZoomControls" aria-label="Map zoom controls">
@@ -150,10 +128,7 @@
       }
     });
 
-    let google3DTileset = null;
-    let osmBuildingsTileset = null;
     let userRasterLayer = null;
-    let rasterClipPositions = null;
 
     function hideLoadingOverlay() {
       document.getElementById("loadingOverlay").classList.add("hidden");
@@ -166,22 +141,18 @@
       document.getElementById("loadingText").textContent = "Could not load Ion imagery";
     }
 
-    function rectangleToClipPositions(rectangle) {
+    function drawYellowDottedBoundary(rectangle) {
+      if (!rectangle) return;
       const west = Cesium.Math.toDegrees(rectangle.west);
       const south = Cesium.Math.toDegrees(rectangle.south);
       const east = Cesium.Math.toDegrees(rectangle.east);
       const north = Cesium.Math.toDegrees(rectangle.north);
-      return Cesium.Cartesian3.fromDegreesArray([
-        west, north, east, north, east, south, west, south, west, north
-      ]);
-    }
-
-    function drawYellowDottedBoundary() {
-      if (!rasterClipPositions) return;
       viewer.entities.add({
         name: "Raster boundary",
         polyline: {
-          positions: rasterClipPositions,
+          positions: Cesium.Cartesian3.fromDegreesArray([
+            west, north, east, north, east, south, west, south, west, north
+          ]),
           width: 4,
           material: new Cesium.PolylineDashMaterialProperty({
             color: Cesium.Color.YELLOW.withAlpha(0.6),
@@ -199,24 +170,6 @@
       }
     }
 
-    /** Cut 3D tiles inside the raster bounds so imagery renders on top. */
-    function clipTilesetBehindRaster(tileset) {
-      if (!rasterClipPositions) return;
-      tileset.clippingPolygons = new Cesium.ClippingPolygonCollection({
-        polygons: [
-          new Cesium.ClippingPolygon({ positions: rasterClipPositions })
-        ],
-        inverse: true,
-        enabled: true
-      });
-    }
-
-    function addBasemapTileset(tileset) {
-      clipTilesetBehindRaster(tileset);
-      viewer.scene.primitives.add(tileset, 0);
-      ensureRasterOnTop();
-    }
-
     // --- Core imagery load (Cesium Ion recommended pattern) ---
     try {
       userRasterLayer = viewer.imageryLayers.addImageryProvider(
@@ -225,50 +178,13 @@
       ensureRasterOnTop();
       await viewer.zoomTo(userRasterLayer);
 
-      const rectangle = userRasterLayer.imageryProvider.rectangle;
-      rasterClipPositions = rectangleToClipPositions(rectangle);
-      drawYellowDottedBoundary();
+      drawYellowDottedBoundary(userRasterLayer.imageryProvider.rectangle);
       hideLoadingOverlay();
     } catch (error) {
       console.log(error);
       showAssetError(String(error.message || error));
       hideLoadingOverlay();
     }
-
-    // --- Optional basemaps (behind raster; off by default) ---
-    document.getElementById("toggleGoogle3D").addEventListener("change", async (e) => {
-      if (e.target.checked) {
-        try {
-          if (!google3DTileset) {
-            google3DTileset = await Cesium.createGooglePhotorealistic3DTileset();
-          }
-          addBasemapTileset(google3DTileset);
-        } catch (err) {
-          console.error(err);
-          e.target.checked = false;
-        }
-      } else if (google3DTileset) {
-        viewer.scene.primitives.remove(google3DTileset);
-        ensureRasterOnTop();
-      }
-    });
-
-    document.getElementById("toggleOsmBuildings").addEventListener("change", async (e) => {
-      if (e.target.checked) {
-        try {
-          if (!osmBuildingsTileset) {
-            osmBuildingsTileset = await Cesium.createOsmBuildingsAsync();
-          }
-          addBasemapTileset(osmBuildingsTileset);
-        } catch (err) {
-          console.error(err);
-          e.target.checked = false;
-        }
-      } else if (osmBuildingsTileset) {
-        viewer.scene.primitives.remove(osmBuildingsTileset);
-        ensureRasterOnTop();
-      }
-    });
   </script>
 </body>
 </html>
