@@ -3,7 +3,6 @@
 <head>
   <meta charset="utf-8">
   <title>Nugi City Raster by TerraGrid</title>
-  <!-- CesiumJS library (must load Cesium.js, not cesium.com homepage) -->
   <script src="https://unpkg.com/cesium@1.119/Build/Cesium/Cesium.js"></script>
   <link href="https://unpkg.com/cesium@1.119/Build/Cesium/Widgets/widgets.css" rel="stylesheet">
   <style>
@@ -32,7 +31,10 @@
       border-radius: 50%; border-top-color: #ffd700;
       animation: spin 1s linear infinite; margin-bottom: 20px;
     }
-    #loadingText { color: #eaeaea; font-size: 16px; font-weight: 300; letter-spacing: 1px; }
+    #loadingText { color: #eaeaea; font-size: 16px; font-weight: 300; letter-spacing: 1px; max-width: 90%; text-align: center; }
+    #assetError {
+      color: #ff6b6b; font-size: 13px; margin-top: 12px; max-width: 480px; text-align: center; line-height: 1.4;
+    }
     @keyframes spin { to { transform: rotate(360deg); } }
     .hidden { opacity: 0; visibility: hidden; pointer-events: none; }
   </style>
@@ -42,6 +44,7 @@
   <div id="loadingOverlay">
     <div class="spinner"></div>
     <div id="loadingText">Streaming Nugi City Geospatial Raster by TerraGrid...</div>
+    <div id="assetError" style="display:none;"></div>
   </div>
 
   <div id="layerControlPanel">
@@ -52,28 +55,35 @@
     </div>
     <div class="control-group">
       <input type="radio" id="baseGoogle2D" name="basemap">
-      <label for="baseGoogle2D">Google Maps 2D Satellite + Labels</label>
+      <label for="baseGoogle2D">Google Maps 2D Satellite</label>
     </div>
     <hr style="border: 0; border-top: 1px solid #555; margin: 10px 0;">
     <h3>3D Structural Overlays</h3>
     <div class="control-group">
       <input type="checkbox" id="toggleOsmBuildings">
-      <label for="toggleOsmBuildings">Cesium OSM Buildings (Use with 2D)</label>
+      <label for="toggleOsmBuildings">Cesium OSM Buildings (use with 2D)</label>
     </div>
   </div>
 
   <div id="cesiumContainer"></div>
 
   <script>
-    // 1. SET YOUR ACCESS TOKENS (Replace with yours)
+    // --- Config ---
     Cesium.Ion.defaultAccessToken = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiI5NjNhYjZiZC01YjI1LTQwOTItOGRjNS0zNGM5YmJjN2M5YWYiLCJpZCI6NDQ2Mjc4LCJpc3MiOiJodHRwczovL2FwaS5jZXNpdW0uY29tIiwiYXVkIjoidW5kZWZpbmVkX2RlZmF1bHQiLCJpYXQiOjE3ODE3OTc0MTl9.eslbWQ0i9TJnycIrbkiFR-wydnw1O8qgHaxsyn5Xfvw';
-    const MY_RASTER_ASSET_ID = 4959394;
+    const MY_RASTER_ASSET_ID = 4959394; // Ion Assets → open asset → ID in URL
+    const ION_TOKEN = Cesium.Ion.defaultAccessToken;
 
-    // 2. INITIALIZE THE VIEWER
+    // --- Viewer (Cesium 1.119 API) ---
     const viewer = new Cesium.Viewer('cesiumContainer', {
-      terrainProvider: false,
+      baseLayer: false,
       baseLayerPicker: false,
-      imageryProvider: false
+      animation: false,
+      timeline: false,
+      geocoder: false,
+      homeButton: false,
+      sceneModePicker: false,
+      navigationHelpButton: false,
+      fullscreenButton: true
     });
 
     viewer.scene.screenSpaceCameraController.minimumZoomDistance = 10.0;
@@ -81,31 +91,48 @@
     let currentBasemap3DTileset = null;
     let currentBasemapImagery = null;
     let osmBuildingsTileset = null;
+    let userIonTileset = null;
 
     function hideLoadingOverlay() {
       document.getElementById('loadingOverlay').classList.add('hidden');
     }
 
-    // 3. BASEMAP INGESTION FUNCTIONS
+    function showAssetError(msg) {
+      const el = document.getElementById('assetError');
+      el.style.display = 'block';
+      el.textContent = msg;
+      document.getElementById('loadingText').textContent = 'Could not load Ion asset';
+    }
+
+    async function fetchIonAssetMeta(assetId) {
+      const res = await fetch(`https://api.cesium.com/v1/assets/${assetId}`, {
+        headers: { Authorization: `Bearer ${ION_TOKEN}` }
+      });
+      if (!res.ok) {
+        const body = await res.text();
+        throw new Error(`Ion API ${res.status}: ${body || res.statusText}`);
+      }
+      const data = await res.json();
+      return data.asset || data;
+    }
+
     async function activateGoogle3DTiles() {
       clearBasemaps();
       try {
         currentBasemap3DTileset = await Cesium.createGooglePhotorealistic3DTileset();
         viewer.scene.primitives.add(currentBasemap3DTileset);
       } catch (error) {
-        console.error('Error loading Google Photorealistic 3D Tiles:', error);
+        console.error('Google Photorealistic 3D Tiles failed:', error);
       }
     }
 
     function activateGoogle2DSatellite() {
       clearBasemaps();
-      currentBasemapImagery = new Cesium.ImageryLayer(
-        new Cesium.UrlTemplateImageryProvider({
-          url: 'https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}',
-          credit: 'Google Maps'
-        })
-      );
-      viewer.imageryLayers.add(currentBasemapImagery);
+      const provider = new Cesium.UrlTemplateImageryProvider({
+        url: 'https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}',
+        credit: 'Google Maps'
+      });
+      currentBasemapImagery = viewer.imageryLayers.addImageryProvider(provider);
     }
 
     function clearBasemaps() {
@@ -114,47 +141,99 @@
         currentBasemap3DTileset = null;
       }
       if (currentBasemapImagery) {
-        viewer.imageryLayers.remove(currentBasemapImagery);
+        viewer.imageryLayers.remove(currentBasemapImagery, false);
         currentBasemapImagery = null;
       }
     }
 
-    // 4. LOAD YOUR CUSTOM RASTER LAYER AND FLY TO IT
+    function flyAndBoundary(rectangle) {
+      if (!rectangle) {
+        hideLoadingOverlay();
+        return;
+      }
+      viewer.camera.flyTo({ destination: rectangle, duration: 3.5 });
+      drawYellowDottedBoundary(rectangle);
+
+      function onMoveEnd() {
+        viewer.camera.moveEnd.removeEventListener(onMoveEnd);
+        function onTilesLoaded(queueLength) {
+          if (queueLength === 0) {
+            viewer.scene.globe.tileLoadProgressEvent.removeEventListener(onTilesLoaded);
+            hideLoadingOverlay();
+          }
+        }
+        viewer.scene.globe.tileLoadProgressEvent.addEventListener(onTilesLoaded);
+      }
+      viewer.camera.moveEnd.addEventListener(onMoveEnd);
+
+      setTimeout(hideLoadingOverlay, 8000);
+    }
+
+    async function loadAs3DTiles(assetId) {
+      if (userIonTileset) {
+        viewer.scene.primitives.remove(userIonTileset);
+        userIonTileset = null;
+      }
+      userIonTileset = await Cesium.Cesium3DTileset.fromIonAssetId(assetId);
+      viewer.scene.primitives.add(userIonTileset);
+      await viewer.zoomTo(userIonTileset);
+      hideLoadingOverlay();
+    }
+
     async function loadUserRaster() {
       try {
-        const provider = await Cesium.IonImageryProvider.fromAssetId(MY_RASTER_ASSET_ID);
-        viewer.imageryLayers.addImageryProvider(provider);
+        const meta = await fetchIonAssetMeta(MY_RASTER_ASSET_ID);
+        console.log('Ion asset metadata:', meta);
 
-        const rectangle = provider.rectangle;
+        const status = meta.status;
+        const assetType = meta.type;
+        const name = meta.name || 'asset';
 
-        if (rectangle) {
-          viewer.camera.flyTo({
-            destination: rectangle,
-            duration: 3.5
-          });
+        if (status !== 'COMPLETE') {
+          showAssetError(`Asset status is "${status}". Wait for tiling to finish in Ion, then reload.`);
+          hideLoadingOverlay();
+          return;
+        }
 
-          drawYellowDottedBoundary(rectangle);
+        document.getElementById('loadingText').textContent = `Loading ${name} (${assetType})...`;
 
-          const unwatchFlight = viewer.camera.moveEnd.addEventListener(function () {
-            const removeTilesetListener = viewer.scene.globe.tileLoadProgressEvent.addEventListener(function (queueLength) {
-              if (queueLength === 0) {
-                hideLoadingOverlay();
-                removeTilesetListener();
-              }
-            });
-            unwatchFlight();
-          });
+        if (assetType === 'IMAGERY') {
+          const provider = await Cesium.IonImageryProvider.fromAssetId(MY_RASTER_ASSET_ID);
+          viewer.imageryLayers.addImageryProvider(provider);
+          flyAndBoundary(provider.rectangle);
+        } else if (assetType === '3DTILES') {
+          await loadAs3DTiles(MY_RASTER_ASSET_ID);
+          console.info('Loaded as 3D Tiles. For a flat 2D overlay, re-upload as Imagery in Ion.');
+        } else if (assetType === 'TERRAIN') {
+          showAssetError('Asset is TERRAIN. Pick an IMAGERY or 3DTILES asset for this viewer.');
+          hideLoadingOverlay();
         } else {
-          console.warn('Could not read spatial coordinates from asset metadata.');
+          showAssetError(`Unsupported type "${assetType}". Use IMAGERY or 3DTILES in Ion.`);
           hideLoadingOverlay();
         }
       } catch (error) {
-        console.error('Error loading your custom Ion raster asset:', error);
-        hideLoadingOverlay();
+        console.error('Error loading Ion asset:', error);
+        const msg = error.message || String(error);
+
+        if (msg.includes('not an imagery asset') || msg.includes('400')) {
+          showAssetError(
+            'Asset ' + MY_RASTER_ASSET_ID + ' is not IMAGERY (wrong type, ID, or token). Checking 3D Tiles fallback...'
+          );
+          try {
+            await loadAs3DTiles(MY_RASTER_ASSET_ID);
+            document.getElementById('assetError').textContent += ' Loaded as 3D Tiles instead.';
+          } catch (e2) {
+            console.error('3D Tiles fallback failed:', e2);
+            showAssetError(msg + ' — 3D Tiles fallback also failed.');
+            hideLoadingOverlay();
+          }
+        } else {
+          showAssetError(msg);
+          hideLoadingOverlay();
+        }
       }
     }
 
-    // 5. YELLOW DOTTED BOUNDARY
     function drawYellowDottedBoundary(rectangle) {
       const west = Cesium.Math.toDegrees(rectangle.west);
       const south = Cesium.Math.toDegrees(rectangle.south);
@@ -162,14 +241,10 @@
       const north = Cesium.Math.toDegrees(rectangle.north);
 
       viewer.entities.add({
-        name: 'Raster Boundary Outlines',
+        name: 'Raster boundary',
         polyline: {
           positions: Cesium.Cartesian3.fromDegreesArray([
-            west, north,
-            east, north,
-            east, south,
-            west, south,
-            west, north
+            west, north, east, north, east, south, west, south, west, north
           ]),
           width: 4,
           material: new Cesium.PolylineDashMaterialProperty({
@@ -182,14 +257,14 @@
       });
     }
 
-    // 6. TOGGLE CESIUM OSM BUILDINGS OVERLAY
     async function toggleOsmBuildings(visible) {
       if (visible) {
         if (!osmBuildingsTileset) {
           try {
             osmBuildingsTileset = await Cesium.createOsmBuildingsAsync();
           } catch (error) {
-            console.error('Error creating OSM Buildings:', error);
+            console.error('OSM Buildings failed:', error);
+            document.getElementById('toggleOsmBuildings').checked = false;
             return;
           }
         }
@@ -199,7 +274,6 @@
       }
     }
 
-    // 7. INTERFACE EVENT LISTENERS
     document.getElementById('baseGoogle3D').addEventListener('change', (e) => {
       if (e.target.checked) activateGoogle3DTiles();
     });
@@ -212,9 +286,16 @@
       toggleOsmBuildings(e.target.checked);
     });
 
-    // 8. STARTUP
-    activateGoogle3DTiles();
-    loadUserRaster();
+    // Startup
+    (async function init() {
+      try {
+        await activateGoogle3DTiles();
+        await loadUserRaster();
+      } catch (err) {
+        console.error('Startup error:', err);
+        hideLoadingOverlay();
+      }
+    })();
   </script>
 </body>
 </html>
