@@ -8,6 +8,7 @@
   <style>
     html, body, #cesiumContainer {
       width: 100%; height: 100vh; margin: 0; padding: 0; overflow: hidden;
+      touch-action: none;
     }
     #layerControlPanel {
       position: absolute; top: 10px; left: 10px; background: rgba(42, 42, 42, 0.85);
@@ -18,6 +19,20 @@
     .control-group { margin-bottom: 8px; font-size: 13px; display: flex; align-items: center; }
     .control-group input { margin-right: 8px; cursor: pointer; }
     .control-group label { cursor: pointer; }
+    #mapZoomControls {
+      position: absolute; right: 16px; bottom: 32px; z-index: 999;
+      display: flex; flex-direction: column; border-radius: 6px; overflow: hidden;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+      font-family: sans-serif;
+    }
+    #mapZoomControls button {
+      width: 40px; height: 40px; border: none; background: rgba(42, 42, 42, 0.92);
+      color: white; font-size: 22px; line-height: 1; cursor: pointer;
+      transition: background 0.15s ease;
+    }
+    #mapZoomControls button:hover { background: rgba(60, 60, 60, 0.95); }
+    #mapZoomControls button:active { background: rgba(80, 80, 80, 0.95); }
+    #mapZoomControls button + button { border-top: 1px solid rgba(255, 255, 255, 0.15); }
     #loadingOverlay {
       position: fixed; inset: 0; background: #141414; z-index: 10000;
       display: flex; flex-direction: column; justify-content: center; align-items: center;
@@ -54,6 +69,11 @@
     </div>
   </div>
 
+  <div id="mapZoomControls" aria-label="Map zoom controls">
+    <button type="button" id="mapZoomIn" title="Zoom in">+</button>
+    <button type="button" id="mapZoomOut" title="Zoom out">−</button>
+  </div>
+
   <div id="cesiumContainer"></div>
 
   <!-- type="module" enables top-level await (same as Cesium Ion Sandcastle snippet) -->
@@ -64,6 +84,33 @@
     const MY_RASTER_ASSET_ID = 4959394;
 
     const viewer = new Cesium.Viewer("cesiumContainer");
+
+    const controller = viewer.scene.screenSpaceCameraController;
+    controller.enableZoom = true;
+    controller.zoomEventTypes = [
+      Cesium.CameraEventType.WHEEL,
+      Cesium.CameraEventType.PINCH,
+    ];
+    controller.inertiaZoom = 0.5;
+
+    // Let trackpad scroll/pinch reach Cesium instead of the browser (Ctrl+pinch zoom, page scroll).
+    viewer.canvas.addEventListener(
+      "wheel",
+      (e) => e.preventDefault(),
+      { passive: false },
+    );
+
+    function zoomByFactor(factor) {
+      const height = viewer.camera.positionCartographic.height;
+      if (factor > 1) {
+        viewer.camera.zoomOut(height * (factor - 1));
+      } else {
+        viewer.camera.zoomIn(height * (1 - factor));
+      }
+    }
+
+    document.getElementById("mapZoomIn").addEventListener("click", () => zoomByFactor(0.7));
+    document.getElementById("mapZoomOut").addEventListener("click", () => zoomByFactor(1.3));
 
     let google3DTileset = null;
     let osmBuildingsTileset = null;
