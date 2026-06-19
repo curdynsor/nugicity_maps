@@ -2,99 +2,229 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>NUGI CITY ORTHOMOSAIC</title>
-  <script src="https://cesium.com/downloads/cesiumjs/releases/1.115/Build/Cesium/Cesium.js"></script>
-  <link href="https://cesium.com/downloads/cesiumjs/releases/1.115/Build/Cesium/Widgets/widgets.css" rel="stylesheet">
-  
-  <script src="https://cdn.jsdelivr.net/npm/tiff-imagery-provider@2.17.5/dist/index.umd.js"></script>
-  
+  <title>Nugi City Raster by TerraGrid</title>
+  <!-- Load Modern CesiumJS Release Framework -->
+  <script src="https://cesium.com"></script>
+  <link href="https://cesium.com" rel="stylesheet">
   <style>
     html, body, #cesiumContainer {
-      width: 100%; height: 100%; margin: 0; padding: 0; overflow: hidden;
+      width: 100%; height: 100vh; margin: 0; padding: 0; overflow: hidden;
+      background: #111;
     }
-    #basemapMenu {
-      position: absolute; top: 10px; left: 10px; z-index: 1000;
-      background: rgba(42, 42, 42, 0.8); padding: 10px; border-radius: 4px;
-      color: white; font-family: sans-serif;
+    /* Custom clean layer picker panel style */
+    #layerControlPanel {
+      position: absolute; top: 10px; left: 10px; background: rgba(42, 42, 42, 0.85);
+      padding: 12px; border-radius: 6px; font-family: sans-serif; color: white; z-index: 999;
+      box-shadow: 0 4px 6px rgba(0,0,0,0.3);
     }
-    select { background: #333; color: white; border: 1px solid #555; padding: 5px; }
+    #layerControlPanel h3 { margin: 0 0 10px 0; font-size: 14px; text-transform: uppercase; letter-spacing: 0.5px; }
+    .control-group { margin-bottom: 8px; font-size: 13px; display: flex; align-items: center; }
+    .control-group input { margin-right: 8px; cursor: pointer; }
+    .control-group label { cursor: pointer; }
+
+    /* Modern Minimalist Loading Screen Overlay */
+    #loadingOverlay {
+      position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+      background-color: #141414; z-index: 10000; display: flex;
+      flex-direction: column; justify-content: center; align-items: center;
+      transition: opacity 0.8s ease, visibility 0.8s; font-family: sans-serif;
+    }
+    .spinner {
+      width: 50px; height: 50px; border: 3px solid rgba(255, 255, 255, 0.1);
+      border-radius: 50%; border-top-color: #ffd700;
+      animation: spin 1s linear infinite; margin-bottom: 20px;
+    }
+    #loadingText { color: #eaeaea; font-size: 16px; font-weight: 300; letter-spacing: 1px; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .hidden { opacity: 0; visibility: hidden; pointer-events: none; }
   </style>
 </head>
 <body>
 
-  <div id="basemapMenu">
-    <label for="basemaps">Choose Basemap: </label>
-    <select id="basemaps">
-      <option value="osm">OpenStreetMap</option>
-      <option value="google">Google Earth (3D Tiles)</option>
-    </select>
+  <!-- Animated Loading Screen -->
+  <div id="loadingOverlay">
+    <div class="spinner"></div>
+    <div id="loadingText">Streaming Nugi City Geospatial Raster by TerraGrid...</div>
   </div>
 
+  <!-- UI Basemap Selector Interface -->
+  <div id="layerControlPanel">
+    <h3>Basemap Layers</h3>
+    <div class="control-group">
+      <input type="radio" id="baseGoogle3D" name="basemap" checked>
+      <label for="baseGoogle3D">Google Photorealistic 3D Tiles</label>
+    </div>
+    <div class="control-group">
+      <input type="radio" id="baseGoogle2D" name="basemap">
+      <label for="baseGoogle2D">Google Maps 2D Satellite + Labels</label>
+    </div>
+    <hr style="border: 0; border-top: 1px solid #555; margin: 10px 0;">
+    <h3>3D Structural Overlays</h3>
+    <div class="control-group">
+      <input type="checkbox" id="toggleOsmBuildings">
+      <label for="toggleOsmBuildings">Cesium OSM Buildings (Use with 2D)</label>
+    </div>
+  </div>
+
+  <!-- Main Globe Container -->
   <div id="cesiumContainer"></div>
 
   <script>
-    // 1. YOUR CONFIGURATION
-    // Replace with your actual Cesium Ion Access Token (Required for Google 3D Tiles)
+    // 1. SET YOUR ACCESS TOKENS (Replace with yours)
     Cesium.Ion.defaultAccessToken = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiI5NjNhYjZiZC01YjI1LTQwOTItOGRjNS0zNGM5YmJjN2M5YWYiLCJpZCI6NDQ2Mjc4LCJpc3MiOiJodHRwczovL2FwaS5jZXNpdW0uY29tIiwiYXVkIjoidW5kZWZpbmVkX2RlZmF1bHQiLCJpYXQiOjE3ODE3OTc0MTl9.eslbWQ0i9TJnycIrbkiFR-wydnw1O8qgHaxsyn5Xfvw'; 
-    
-    // Replace with your Filebase public gateway link to the COG
-    const COG_URL = "https://nugi-cog.s3.filebase.io/output_nugicity_cog.tif";
+    const MY_RASTER_ASSET_ID = 4959394; 
 
     // 2. INITIALIZE THE VIEWER
     const viewer = new Cesium.Viewer('cesiumContainer', {
-      baseLayerPicker: false, // Turned off to use our custom menu
-      animation: false,
-      timeline: false,
-      infoBox: false,
-      geocoder: false
+      terrainProvider: false, 
+      baseLayerPicker: false, 
+      imageryProvider: false  
     });
 
-    // 3. BASEMAP LAYERS DEFINITION
-    // OpenStreetMap Layer
-    const osmLayer = new Cesium.ImageryLayer(
-      new Cesium.OpenStreetMapImageryProvider({
-        url: 'https://a.tile.openstreetmap.org/'
-      })
-    );
-    viewer.imageryLayers.add(osmLayer);
+    // CAMERA TWEAK: Prevents mouse scrolling from crashing underneath the 3D terrain surface
+    viewer.scene.screenSpaceCameraController.minimumZoomDistance = 10.0;
 
-    // Google Photorealistic 3D Tiles Layer (Lazy loaded when selected)
-    let googleTileset = null;
+    let currentBasemap3DTileset = null;
+    let currentBasemapImagery = null;
+    let osmBuildingsTileset = null;
 
-    // Handle Basemap Switching
-    document.getElementById('basemaps').addEventListener('change', async (e) => {
-      const selected = e.target.value;
-      
-      if (selected === 'google') {
-        osmLayer.show = false;
-        if (!googleTileset) {
-          try {
-            googleTileset = await Cesium.createGooglePhotorealistic3DTileset();
-            viewer.scene.primitives.add(googleTileset);
-          } catch (error) {
-            console.error("Error loading Google 3D Tiles:", error);
-          }
-        } else {
-          googleTileset.show = true;
-        }
-      } else if (selected === 'osm') {
-        osmLayer.show = true;
-        if (googleTileset) googleTileset.show = false;
+    // 3. BASEMAP INGESTION FUNCTIONS
+    async function activateGoogle3DTiles() {
+      clearBasemaps();
+      try {
+        currentBasemap3DTileset = await Cesium.createGooglePhotorealistic3DTileset();
+        viewer.scene.primitives.add(currentBasemap3DTileset);
+      } catch (error) {
+        console.error("Error loading Google Photorealistic 3D Tiles:", error);
       }
+    }
+
+    function activateGoogle2DSatellite() {
+      clearBasemaps();
+      currentBasemapImagery = new Cesium.ImageryLayer(
+        new Cesium.UrlTemplateImageryProvider({
+          url: 'https://google.com{x}&y={y}&z={z}', 
+          credit: 'Google Maps'
+        })
+      );
+      viewer.imageryLayers.add(currentBasemapImagery);
+    }
+
+    function clearBasemaps() {
+      if (currentBasemap3DTileset) {
+        viewer.scene.primitives.remove(currentBasemap3DTileset);
+        currentBasemap3DTileset = null;
+      }
+      if (currentBasemapImagery) {
+        viewer.imageryLayers.remove(currentBasemapImagery);
+        currentBasemapImagery = null;
+      }
+    }
+
+    // 4. LOAD YOUR CUSTOM RASTER LAYER AND FLY TO IT
+    async function loadUserRaster() {
+      try {
+        const provider = await Cesium.IonImageryProvider.fromAssetId(MY_RASTER_ASSET_ID);
+        viewer.imageryLayers.addImageryProvider(provider);
+        
+        const rectangle = provider.rectangle;
+        
+        if (rectangle) {
+          // Smoothly fly the camera straight to your custom asset bounds
+          viewer.camera.flyTo({ 
+            destination: rectangle,
+            duration: 3.5
+          });
+          
+          // Draw the transparent yellow dotted boundary line
+          drawYellowDottedBoundary(rectangle);
+          
+          // CRITICAL EVENT TRACKER: Listen to the flight status and scene rendering
+          let unwatchFlight = viewer.camera.moveEnd.addEventListener(function() {
+            // Once camera stops flying, wait until tiles drop into view before hiding overlay [1]
+            const removeTilesetListener = viewer.scene.globe.tileLoadProgressEvent.addEventListener(function(queueLength) {
+              if (queueLength === 0) {
+                document.getElementById('loadingOverlay').classList.add('hidden');
+                removeTilesetListener(); // Kill listener to avoid loops
+              }
+            });
+            unwatchFlight(); // Kill camera listener
+          });
+
+        } else {
+          console.warn("Could not read spatial coordinates from asset metadata.");
+          document.getElementById('loadingOverlay').classList.add('hidden'); // Fallback clear
+        }
+      } catch (error) {
+        console.error("Error loading your custom Ion raster asset:", error);
+        document.getElementById('loadingOverlay').classList.add('hidden'); // Fallback clear
+      }
+    }
+
+    // 5. GENERATE THE YELLOW DOTTED TRANSPARENT BOUNDARY
+    function drawYellowDottedBoundary(rectangle) {
+      const west = Cesium.Math.toDegrees(rectangle.west);
+      const south = Cesium.Math.toDegrees(rectangle.south);
+      const east = Cesium.Math.toDegrees(rectangle.east);
+      const north = Cesium.Math.toDegrees(rectangle.north);
+
+      viewer.entities.add({
+        name: 'Raster Boundary Outlines',
+        polyline: {
+          positions: Cesium.Cartesian3.fromDegreesArray([
+            west, north,
+            east, north,
+            east, south,
+            west, south,
+            west, north 
+          ]),
+          width: 4,
+          material: new Cesium.PolylineDashMaterialProperty({
+            color: Cesium.Color.YELLOW.withAlpha(0.6), 
+            gapColor: Cesium.Color.TRANSPARENT,        
+            dashLength: 16                             
+          }),
+          clampToGround: true 
+        }
+      });
+    }
+
+    // 6. TOGGLE CESIUM OSM BUILDINGS OVERLAY
+    async function toggleOsmBuildings(visible) {
+      if (visible) {
+        if (!osmBuildingsTileset) {
+          try {
+            osmBuildingsTileset = await Cesium.createOsmBuildingsAsync();
+          } catch (error) {
+            console.error("Error creating OSM Buildings:", error);
+            return;
+          }
+        }
+        viewer.scene.primitives.add(osmBuildingsTileset);
+      } else {
+        if (osmBuildingsTileset) {
+          viewer.scene.primitives.remove(osmBuildingsTileset);
+        }
+      }
+    }
+
+    // 7. INTERFACE EVENT LISTENERS
+    document.getElementById('baseGoogle3D').addEventListener('change', (e) => {
+      if (e.target.checked) activateGoogle3DTiles();
     });
 
-    // 4. LOAD THE CLOUD OPTIMIZED GEOTIFF (COG)
-    async function loadCOG() {
-  try {
-    // The UMD bundle exposes it as TIFFImageryProvider directly on the window context
-    const provider = await window.TIFFImageryProvider.fromUrl(COG_URL);
-    const cogLayer = viewer.imageryLayers.addImageryProvider(provider);
-    viewer.zoomTo(cogLayer);
-  } catch (err) {
-    console.error("Failed to load COG:", err);
-  }
-}
-    loadCOG();
+    document.getElementById('baseGoogle2D').addEventListener('change', (e) => {
+      if (e.target.checked) activateGoogle2DSatellite();
+    });
+
+    document.getElementById('toggleOsmBuildings').addEventListener('change', (e) => {
+      toggleOsmBuildings(e.target.checked);
+    });
+
+    // 8. SETUP TRIGGERS ON FIRST PAGE RUN
+    activateGoogle3DTiles();
+    loadUserRaster();
+
   </script>
 </body>
 </html>
