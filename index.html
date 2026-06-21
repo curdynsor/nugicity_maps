@@ -45,7 +45,7 @@
 
   <div id="loadingOverlay">
     <div class="spinner"></div>
-    <div id="loadingText">Loading Nugi City raster from TerraGrid Assets...</div>
+    <div id="loadingText">Loading Nugi City raster and KML overlay from Cesium Ion...</div>
     <div id="assetError"></div>
   </div>
 
@@ -62,6 +62,7 @@
     Cesium.Ion.defaultAccessToken = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiI5NjNhYjZiZC01YjI1LTQwOTItOGRjNS0zNGM5YmJjN2M5YWYiLCJpZCI6NDQ2Mjc4LCJpc3MiOiJodHRwczovL2FwaS5jZXNpdW0uY29tIiwiYXVkIjoidW5kZWZpbmVkX2RlZmF1bHQiLCJpYXQiOjE3ODE3OTc0MTl9.eslbWQ0i9TJnycIrbkiFR-wydnw1O8qgHaxsyn5Xfvw";
 
     const MY_RASTER_ASSET_ID = 4959394;
+    const MY_KML_ASSET_ID = 4971405;
 
     const viewer = new Cesium.Viewer("cesiumContainer");
 
@@ -170,14 +171,38 @@
       }
     }
 
-    // --- Core imagery load (Cesium Ion recommended pattern) ---
+    async function loadIonKmlOverlay(assetId) {
+      const resource = await Cesium.IonResource.fromAssetId(assetId);
+      const loadOptions = {
+        camera: viewer.scene.camera,
+        canvas: viewer.scene.canvas,
+        clampToGround: true
+      };
+
+      try {
+        const dataSource = await Cesium.KmlDataSource.load(resource, loadOptions);
+        return await viewer.dataSources.add(dataSource);
+      } catch (kmlError) {
+        console.warn("KmlDataSource failed, trying CzmlDataSource:", kmlError);
+        const dataSource = await Cesium.CzmlDataSource.load(resource);
+        return await viewer.dataSources.add(dataSource);
+      }
+    }
+
+    // --- Raster imagery + KML overlay ---
     try {
       userRasterLayer = viewer.imageryLayers.addImageryProvider(
         await Cesium.IonImageryProvider.fromAssetId(MY_RASTER_ASSET_ID),
       );
       ensureRasterOnTop();
-      await viewer.zoomTo(userRasterLayer);
 
+      try {
+        await loadIonKmlOverlay(MY_KML_ASSET_ID);
+      } catch (kmlError) {
+        console.error("Error loading Ion KML overlay:", kmlError);
+      }
+
+      await viewer.zoomTo(userRasterLayer);
       drawYellowDottedBoundary(userRasterLayer.imageryProvider.rectangle);
       hideLoadingOverlay();
     } catch (error) {
